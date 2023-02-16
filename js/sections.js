@@ -5,12 +5,13 @@
  * using reusable charts pattern:
  * http://bost.ocks.org/mike/chart/
  */
-var scrollVis = function () {
+ var scrollVis = function () {
   // constants to define the size
   // and margins of the vis area.
   var width = 600;
   var height = 520;
-  var margin = { top: 0, left: 20, bottom: 40, right: 10 };
+  var margin = { top: 10, left: 50, bottom: 30, right: 50 };
+  // TODO margin don't matter??
 
   // Keep track of which visualization
   // we are on and which was the last
@@ -32,66 +33,75 @@ var scrollVis = function () {
   // for displaying visualizations
   var g = null;
 
+  var video = document.getElementById('video');
+
+  // subContainers for quicker selections
+  var touchesContainer = null;
+
   // We will set the domain when the
   // data is processed.
-  // @v4 using new scale names
   var xBarScale = d3.scaleLinear()
     .range([0, width]);
 
-  // The bar chart display is horizontal
-  // so we can use an ordinal scale
-  // to get width and y locations.
-  // @v4 using new scale type
-  var yBarScale = d3.scaleBand()
-    .paddingInner(0.08)
-    .domain([0, 1, 2])
-    .range([0, height - 50], 0.1, 0.1);
-
-  // Color is determined just by the index of the bars
-  var barColors = { 0: '#008080', 1: '#399785', 2: '#5AAF8C' };
 
   // The histogram display shows the
   // first 30 minutes of data
   // so the range goes from 0 to 30
-  // @v4 using new scale name
   var xHistScale = d3.scaleLinear()
     .domain([0, 30])
     .range([0, width - 20]);
 
-  // @v4 using new scale name
   var yHistScale = d3.scaleLinear()
     .range([height, 0]);
 
-  // The color translation uses this
-  // scale to convert the progress
-  // through the section into a
-  // color value.
-  // @v4 using new scale name
-  var coughColorScale = d3.scaleLinear()
-    .domain([0, 1.0])
-    .range(['#008080', 'red']);
+  var t_open = null;
+  var t_close = null;
+
+  var tau_open = 0;      
+  var tau_close = null;  // video duration (unit: seconds)
+  var delta_tau_s = null;
+  var delta_tau_ms = null;
+
+  var timeAxisScale = d3.scaleLinear()
+    .domain([t_open,t_close])
+    .range([width, 0]);
+    
+  // two timescales: F is for the start of the viz
+  //                 G is for the end of the viz
+  // then during the viz, we interpolate between the two.
+  var gui_stretch = 30;  // should always be >> 1
+  var timeScaleF = null; // TODO refactor timeScaleF to xAtStart
+
+  var timeScaleG = null;
+
+  // given datum's t, compute the tau for when it should enter the viz
+  var t_to_tau_cross = null;
+
+  var tau_to_p = null;
+
+  var t_to_p = null;
+
+  var x_reveal = 600;
 
   // You could probably get fancy and
   // use just one axis, modifying the
   // scale, but I will use two separate
   // ones to keep things easy.
-  // @v4 using new axis name
   var xAxisBar = d3.axisBottom()
     .scale(xBarScale);
 
-  // @v4 using new axis name
   var xAxisHist = d3.axisBottom()
     .scale(xHistScale)
     .tickFormat(function (d) { return d + ' min'; });
 
-  // When scrolling to a new section
-  // the activation function for that
-  // section is called.
+  var timeAxisScroll = d3.axisBottom()
+    .scale(timeAxisScale);
+
+  // When scrolling to a new section, the activation function 
+  // for that section is called.
   var activateFunctions = [];
-  // If a section has an update function
-  // then it is called while scrolling
-  // through the section with the current
-  // progress through the section.
+  // If a section has an update function, then it is continuously
+  // called while scrolling through.
   var updateFunctions = [];
 
   /**
@@ -104,7 +114,11 @@ var scrollVis = function () {
   var chart = function (selection) {
     selection.each(function (rawData) {
       // create svg and give it a width and height
-      svg = d3.select(this).selectAll('svg').data([wordData]);
+      // svg = d3.select(this).selectAll('svg').data([wordData]);
+
+      // TODO not sure why data should be bound here
+      svg = d3.select(this).selectAll('svg').data([rawData]);
+
       var svgE = svg.enter().append('svg');
       // @v4 use merge to combine enter and existing selection
       svg = svg.merge(svgE);
@@ -120,26 +134,67 @@ var scrollVis = function () {
       g = svg.select('g')
         .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
 
-      // perform some preprocessing on raw data
-      var wordData = getWords(rawData);
-      // filter to just include filler words
-      var fillerWords = getFillerWords(wordData);
+      // ALL DATA PRE-COMPUTATIONS FOLLOW HERE
+      var touchData = rawData.touch_times;
+      t_open = rawData.t_open[0];
+      t_close = rawData.t_close[0];
+      tau_close = rawData.tau_close[0];
+      delta_tau_s = tau_close - tau_open;
+      delta_tau_ms = delta_tau_s*1000;
 
-      // get the counts of filler words for the
-      // bar chart display
-      var fillerCounts = groupByWord(fillerWords);
-      // set the bar scale's domain
-      var countMax = d3.max(fillerCounts, function (d) { return d.value;});
-      xBarScale.domain([0, countMax]);
+      // build all of our conversion functions using t_open, t_close
+      timeScaleF = d3.scaleLinear()  // TODO refactor timeScaleF to xAtStart
+      .domain([t_open, t_close])
+      .range([width, width*(1+gui_stretch)]);
 
-      // get aggregated histogram data
+      timeScaleG = d3.scaleLinear()
+      .domain([t_open, t_close])
+      .range([width*(1-gui_stretch), width]);
 
-      var histData = getHistogram(fillerWords);
-      // set histogram's domain
-      var histMax = d3.max(histData, function (d) { return d.length; });
-      yHistScale.domain([0, histMax]);
+      t_to_tau_cross = d3.scaleLinear()
+      .domain([t_open, t_close])
+      .range([tau_open,tau_close]);
 
-      setupVis(wordData, fillerCounts, histData);
+      t_to_p = d3.scaleLinear()
+      .domain([t_open, t_close])
+      .range([0,1]);
+
+      tau_to_p = d3.scaleLinear()
+      .domain([tau_open, tau_close])
+      .range([0,1]);
+      
+
+      // pre-compute initial and ending x points using functions F and G
+      var x_totalWidth = width*gui_stretch;
+      for (i = 0; i < touchData.length; i++) {
+        d = touchData[i];
+        var t = d.time;
+        d.x_start = t_to_p(t)*x_totalWidth + width;
+        d.x_end = d.x_start - x_totalWidth;
+        var p_reveal = (d.x_start - x_reveal)/(x_totalWidth);
+        d.tau_reveal = p_reveal*delta_tau_s;  // range [0,tau_close]
+        d.check = xScaleH(touchData[i], tau_to_p(d.tau_reveal));
+        d.id = i;
+      }
+
+
+      var i=0;
+      d = touchData[i];
+      var t = d.time;
+      d.x_start = t_to_p(t)*x_totalWidth + width;
+      d.x_end = d.x_start - x_totalWidth;
+      var p_reveal = (d.x_start - x_reveal)/(x_totalWidth);
+      console.log(delta_tau_s);
+      d.tau_reveal = p_reveal*delta_tau_s;  // range [0,tau_close]
+      d.check = xScaleH(touchData[i], tau_to_p(d.tau_reveal));
+      d.id = i;
+      console.log(d);
+
+      console.log(rawData);
+      console.log(touchData);
+
+
+      setupVis(touchData);
 
       setupSections();
     });
@@ -155,26 +210,20 @@ var scrollVis = function () {
    *  element for each filler word type.
    * @param histData - binned histogram data
    */
-  var setupVis = function (wordData, fillerCounts, histData) {
-    // axis
-    g.append('g')
-      .attr('class', 'x axis')
-      .attr('transform', 'translate(0,' + height + ')')
-      .call(xAxisBar);
-    g.select('.x.axis').style('opacity', 0);
-
+  
+  var setupVis = function (touchData) {
     // count openvis title
     g.append('text')
       .attr('class', 'title openvis-title')
       .attr('x', width / 2)
       .attr('y', height / 3)
-      .text('2013');
+      .text('');
 
     g.append('text')
       .attr('class', 'sub-title openvis-title')
       .attr('x', width / 2)
       .attr('y', (height / 3) + (height / 5))
-      .text('OpenVis Conf');
+      .text('');
 
     g.selectAll('.openvis-title')
       .attr('opacity', 0);
@@ -195,90 +244,82 @@ var scrollVis = function () {
     g.selectAll('.count-title')
       .attr('opacity', 0);
 
-    // square grid
-    // @v4 Using .merge here to ensure
-    // new and old data have same attrs applied
-    var squares = g.selectAll('.square').data(wordData, function (d) { return d.word; });
-    var squaresE = squares.enter()
-      .append('rect')
-      .classed('square', true);
-    squares = squares.merge(squaresE)
-      .attr('width', squareSize)
-      .attr('height', squareSize)
-      .attr('fill', '#fff')
-      .classed('fill-square', function (d) { return d.filler; })
-      .attr('x', function (d) { return d.x;})
-      .attr('y', function (d) { return d.y;})
-      .attr('opacity', 0);
+    // SECTION 0: video
+    // setup the video listeners
+    video.loop = false;
+    video.volume = 0;
 
-    // barchart
-    // @v4 Using .merge here to ensure
-    // new and old data have same attrs applied
-    var bars = g.selectAll('.bar').data(fillerCounts);
-    var barsE = bars.enter()
-      .append('rect')
-      .attr('class', 'bar');
-    bars = bars.merge(barsE)
+    video.addEventListener('play', startAnimation);
+    video.addEventListener('pause', function() {
+      console.log("pausing?");
+      if (video.currentTime == video.duration) {
+        console.log("not pausing.");
+        video.currentTime = 0;
+
+        console.log("wait for it...");
+        setTimeout(function() {video.play()}, 500);
+        console.log("playing!");
+      } else {
+        console.log("pausing!");
+        stopAnimation();
+      }
+    });
+    video.addEventListener('seeking', seekToState);
+
+    //setup
+
+    // SECTION 0.5: gradient
+    svg.append('defs')
+      .html('\
+      <linearGradient id="Gradient0" x1="0" x2="1" y1="0" y2="0">\
+        <stop offset="0%" stop-color="white" stop-opacity="1" />\
+        <stop offset="100%" stop-color="white" stop-opacity="0" />\
+      </linearGradient')
+
+    svg.append('rect')
       .attr('x', 0)
-      .attr('y', function (d, i) { return yBarScale(i);})
-      .attr('fill', function (d, i) { return barColors[i]; })
-      .attr('width', 0)
-      .attr('height', yBarScale.bandwidth());
+      .attr('y', 0)
+      .attr('width', 100)
+      .attr('height', 700)
+      .attr('fill', 'url(#Gradient0)');
 
-    var barText = g.selectAll('.bar-text').data(fillerCounts);
-    barText.enter()
-      .append('text')
-      .attr('class', 'bar-text')
-      .text(function (d) { return d.key + '…'; })
-      .attr('x', 0)
-      .attr('dx', 15)
-      .attr('y', function (d, i) { return yBarScale(i);})
-      .attr('dy', yBarScale.bandwidth() / 1.2)
-      .style('font-size', '110px')
-      .attr('fill', 'white')
-      .attr('opacity', 0);
+    // SECTION 1: FIRST TOUCH GRAPH    
+    g.append("g")
+    .attr("class", "touchesContainer")
+    .attr('x', width)
+    .attr('y', height/4);
+    var touchesContainer = g.select(".touchesContainer");
 
-    // histogram
-    // @v4 Using .merge here to ensure
-    // new and old data have same attrs applied
-    var hist = g.selectAll('.hist').data(histData);
-    var histE = hist.enter().append('rect')
-      .attr('class', 'hist');
-    hist = hist.merge(histE).attr('x', function (d) { return xHistScale(d.x0); })
-      .attr('y', height)
-      .attr('height', 0)
-      .attr('width', xHistScale(histData[0].x1) - xHistScale(histData[0].x0) - 1)
-      .attr('fill', barColors[0])
-      .attr('opacity', 0);
+    // horizontal line
+    touchesContainer.append("line")
+      .attr("x1", 0)
+      .attr("y1", 120) 
+      .attr("x2", width)
+      .attr("y2", 120)
+      .attr("style", "stroke:rgb(200,200,200);stroke-width:2");
 
-    // cough title
-    g.append('text')
-      .attr('class', 'sub-title cough cough-title')
-      .attr('x', width / 2)
-      .attr('y', 60)
-      .text('cough')
-      .attr('opacity', 0);
+    // vertical line
+    touchesContainer.append("line")
+      .attr("x1", width)
+      .attr("y1", 60) 
+      .attr("x2", width)
+      .attr("y2", 180)
+      .attr("style", "stroke:rgb(20,20,20);stroke-width:2");
 
-    // arrowhead from
-    // http://logogin.blogspot.com/2013/02/d3js-arrowhead-markers.html
-    svg.append('defs').append('marker')
-      .attr('id', 'arrowhead')
-      .attr('refY', 2)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 4)
-      .attr('orient', 'auto')
-      .append('path')
-      .attr('d', 'M 0,0 V 4 L6,2 Z');
+    
+    // initialize the circles
+    var touches = touchesContainer.selectAll('.touch')
+      .data(touchData, function (d) {return d.time;})
+      .enter()
+      .append('circle')
+      .attr('id', d => d.id)
+      .attr('class', 'touch')
+      .attr('cx', function(d){return timeScaleF(d.time);})
+      .attr('cy', 120)
+      .attr('r', 20)
+      .attr('fill', 'red')
+      .attr('opacity', 0.8);
 
-    g.append('path')
-      .attr('class', 'cough cough-arrow')
-      .attr('marker-end', 'url(#arrowhead)')
-      .attr('d', function () {
-        var line = 'M ' + ((width / 2) - 10) + ' ' + 80;
-        line += ' l 0 ' + 230;
-        return line;
-      })
-      .attr('opacity', 0);
   };
 
   /**
@@ -289,17 +330,22 @@ var scrollVis = function () {
    *
    */
   var setupSections = function () {
+    // first, init empty functions
+    for (var i = 0; i < 9; i++) {
+      activateFunctions[i] = function () {console.log(i)};
+    }
+    for (var i = 0; i < 9; i++) {
+      updateFunctions[i] = function () {};
+    }
+
     // activateFunctions are called each
     // time the active section changes
     activateFunctions[0] = showTitle;
-    activateFunctions[1] = showFillerTitle;
-    activateFunctions[2] = showGrid;
-    activateFunctions[3] = highlightGrid;
-    activateFunctions[4] = showBar;
-    activateFunctions[5] = showHistPart;
-    activateFunctions[6] = showHistAll;
-    activateFunctions[7] = showCough;
-    activateFunctions[8] = showHistAll;
+    activateFunctions[1] = function() { video.play(); };
+    
+    
+
+    // TODO more activateFunctions
 
     // updateFunctions are called while
     // in a particular section to update
@@ -307,10 +353,7 @@ var scrollVis = function () {
     // Most sections do not need to be updated
     // for all scrolling and so are set to
     // no-op functions.
-    for (var i = 0; i < 9; i++) {
-      updateFunctions[i] = function () {};
-    }
-    updateFunctions[7] = updateCough;
+    // TODO actual updateFunctions
   };
 
   /**
@@ -346,6 +389,11 @@ var scrollVis = function () {
       .transition()
       .duration(600)
       .attr('opacity', 1.0);
+
+    g.selectAll('.x-axis, .y-axis, .singular-dot')
+    .transition()
+    .duration(0)
+    .attr('opacity', 0);
   }
 
   /**
@@ -362,247 +410,167 @@ var scrollVis = function () {
       .duration(0)
       .attr('opacity', 0);
 
-    g.selectAll('.square')
+    g.select('.x-axis')
       .transition()
       .duration(0)
-      .attr('opacity', 0);
+      .attr('opacity', 1.0);
 
-    g.selectAll('.count-title')
+    g.select('.y-axis')
       .transition()
-      .duration(600)
+      .duration(0)
+      .attr('opacity', 1.0);
+
+    g.selectAll('.singular-dot')
+      .transition()
+      .duration(0)
       .attr('opacity', 1.0);
   }
 
-  /**
-   * showGrid - square grid
-   *
-   * hides: filler count title
-   * hides: filler highlight in grid
-   * shows: square grid
-   *
-   */
-  function showGrid() {
-    g.selectAll('.count-title')
+  function moveTapsTo(p) {
+    console.log("moveTapsTo()");
+    var touches = g.select(".touchesContainer").selectAll('.touch');
+    touches.transition()
+      .ease(d3.easeLinear)
+      .duration(1000)
+      .attr('cx', function(d) {return xScaleH(d, p)});
+  }
+
+  function seekToState() {
+    console.log("seekToState()")
+    
+    var tauCurr = video.currentTime;
+    
+    var p_from = p_tau(tauCurr);
+
+    var touches = g.select(".touchesContainer").selectAll('.touch');
+    
+    // console.log(touches.data());
+    
+
+    var touchesE = touches.data(d3.select("#vis").datum()["touch_times"])
+      .enter()
+      .append("circle")
+      .attr("class", "touch")
+      .attr("id", d => d.i)
+      .attr('r', 20)
+      .attr('fill', 'red')
+      .attr('cy', 120)
+      // if it's not their turn, they'll hang off-screen
+      .attr('cx', 1000);
+
+    
+    
+    touches = touches.merge(touchesE);
+    // touches = g.select(".touchesContainer").selectAll('.touch');  // only if the merge is flopping
+    
+
+    
+
+    touches
+      .data(d3.select("#vis").datum()["touch_times"])
       .transition()
+      .duration(150)
+      .ease(d3.easeLinear)
+      // .attr('opacity', function(d) {return 0.2 + 0.6*(d.tau_reveal < tauCurr)})
+      .attr('opacity', 0.8)
+      // if it is their turn, put them where they belong
+      .attr('cx', d => xScaleH(d, p_from));
+  }
+  
+  function startAnimation() {
+    /*
+    first transition with computed delay, zero duration, opacity 0->1, x anywhere -> width
+    then transition with same delay, duration = remaining animation, x -> end
+    */
+
+    
+    
+
+    var tau_from = video.currentTime;
+    var tau_to = tau_close;
+
+    var p_from = p_tau(tau_from);
+    var p_close = p_tau(tau_close);
+
+    
+    // first bring the points to the x corresponding to tau_from
+    seekToState();
+    console.log("startAnimation() ");
+    
+    var touches = g.select(".touchesContainer").selectAll('.touch');
+    
+    // then bring each to the x_width when it's their turn to be revealed
+    touches
+      .transition()
+      .attr('cx', width)
+      .attr('fill', 'red')
+      .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })  // each datum is revealed at time tau_reveal
+      .duration(0);
+    
+    
+
+    // then continue the rest of the transition
+    touches.transition()
+      .attr('cx', function(d) {return xScaleH(d, p_close)})
+      .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })
+      .ease(d3.easeLinear)
+      .duration(function(d) { return 1000*(tau_to - d.tau_reveal) });
+    
+
+    // elements disappear after 10 seconds
+    var elementRemoveDelay_s = 10;  // TODO
+    touches.transition()
+      .delay(function(d) { return 1000*(d.tau_reveal - tau_from + elementRemoveDelay_s) })
       .duration(0)
-      .attr('opacity', 0);
+      .remove();   
+      
+  }
 
-    g.selectAll('.square')
+  function stopAnimation() {
+    var touches = g.select(".touchesContainer").selectAll(".touch");
+    touches.interrupt();
+  }
+
+  function moveTapsFromNew(p) {
+    // TODO forget p, I should do everything in terms of tau.
+    console.log("start moveTapsFromNew(" + p + ")");
+    
+    var center = svg.attr("width");
+    
+    var touches = g.select(".touchesContainer")
+      .selectAll(".touch");
+
+    // from progress p, the TOTAL animation will last delta_tau_ms*(1-p) seconds
+    touches.interrupt()
+      .attr('cx', function(d) {return xScaleH(d, p)})
       .transition()
-      .duration(600)
-      .delay(function (d) {
-        return 5 * d.row;
-      })
-      .attr('opacity', 1.0)
-      .attr('fill', '#ddd');
+      .ease(d3.easeLinear)
+      .duration(function(d) {delta_tau_ms*(1-p)*p_t(d.time)})
+      .attr('opacity', 1)
+
   }
 
   /**
-   * highlightGrid - show fillers in grid
-   *
-   * hides: barchart, text and axis
-   * shows: square grid and highlighted
-   *  filler words. also ensures squares
-   *  are moved back to their place in the grid
+   * Linear mapping from [tau_open, tau_close] -> [0, 1]
+   *                         (seconds in video)    
+   * Useful for linear combinations.
    */
-  function highlightGrid() {
-    hideAxis();
-    g.selectAll('.bar')
-      .transition()
-      .duration(600)
-      .attr('width', 0);
+  function p_tau(tau_curr) {
+    return (tau_curr - tau_open) / (tau_close - tau_open);
+  }
 
-    g.selectAll('.bar-text')
-      .transition()
-      .duration(0)
-      .attr('opacity', 0);
-
-
-    g.selectAll('.square')
-      .transition()
-      .duration(0)
-      .attr('opacity', 1.0)
-      .attr('fill', '#ddd');
-
-    // use named transition to ensure
-    // move happens even if other
-    // transitions are interrupted.
-    g.selectAll('.fill-square')
-      .transition('move-fills')
-      .duration(800)
-      .attr('x', function (d) {
-        return d.x;
-      })
-      .attr('y', function (d) {
-        return d.y;
-      });
-
-    g.selectAll('.fill-square')
-      .transition()
-      .duration(800)
-      .attr('opacity', 1.0)
-      .attr('fill', function (d) { return d.filler ? '#008080' : '#ddd'; });
+  function p_t(t_curr) {
+    return (t_curr - t_open) / (t_close - t_open);
   }
 
   /**
-   * showBar - barchart
-   *
-   * hides: square grid
-   * hides: histogram
-   * shows: barchart
-   *
+   * Given a time-series datum, figure out where it belongs at the given time
+   * Interpolates between a datum's x_start and x_end
+   * @param {datum} d, a tuple containing time and pre-computed x_start, x_end 
+   * @param {[0,1]} p_tau_curr
    */
-  function showBar() {
-    // ensure bar axis is set
-    showAxis(xAxisBar);
-
-    g.selectAll('.square')
-      .transition()
-      .duration(800)
-      .attr('opacity', 0);
-
-    g.selectAll('.fill-square')
-      .transition()
-      .duration(800)
-      .attr('x', 0)
-      .attr('y', function (d, i) {
-        return yBarScale(i % 3) + yBarScale.bandwidth() / 2;
-      })
-      .transition()
-      .duration(0)
-      .attr('opacity', 0);
-
-    g.selectAll('.hist')
-      .transition()
-      .duration(600)
-      .attr('height', function () { return 0; })
-      .attr('y', function () { return height; })
-      .style('opacity', 0);
-
-    g.selectAll('.bar')
-      .transition()
-      .delay(function (d, i) { return 300 * (i + 1);})
-      .duration(600)
-      .attr('width', function (d) { return xBarScale(d.value); });
-
-    g.selectAll('.bar-text')
-      .transition()
-      .duration(600)
-      .delay(1200)
-      .attr('opacity', 1);
-  }
-
-  /**
-   * showHistPart - shows the first part
-   *  of the histogram of filler words
-   *
-   * hides: barchart
-   * hides: last half of histogram
-   * shows: first half of histogram
-   *
-   */
-  function showHistPart() {
-    // switch the axis to histogram one
-    showAxis(xAxisHist);
-
-    g.selectAll('.bar-text')
-      .transition()
-      .duration(0)
-      .attr('opacity', 0);
-
-    g.selectAll('.bar')
-      .transition()
-      .duration(600)
-      .attr('width', 0);
-
-    // here we only show a bar if
-    // it is before the 15 minute mark
-    g.selectAll('.hist')
-      .transition()
-      .duration(600)
-      .attr('y', function (d) { return (d.x0 < 15) ? yHistScale(d.length) : height; })
-      .attr('height', function (d) { return (d.x0 < 15) ? height - yHistScale(d.length) : 0; })
-      .style('opacity', function (d) { return (d.x0 < 15) ? 1.0 : 1e-6; });
-  }
-
-  /**
-   * showHistAll - show all histogram
-   *
-   * hides: cough title and color
-   * (previous step is also part of the
-   *  histogram, so we don't have to hide
-   *  that)
-   * shows: all histogram bars
-   *
-   */
-  function showHistAll() {
-    // ensure the axis to histogram one
-    showAxis(xAxisHist);
-
-    g.selectAll('.cough')
-      .transition()
-      .duration(0)
-      .attr('opacity', 0);
-
-    // named transition to ensure
-    // color change is not clobbered
-    g.selectAll('.hist')
-      .transition('color')
-      .duration(500)
-      .style('fill', '#008080');
-
-    g.selectAll('.hist')
-      .transition()
-      .duration(1200)
-      .attr('y', function (d) { return yHistScale(d.length); })
-      .attr('height', function (d) { return height - yHistScale(d.length); })
-      .style('opacity', 1.0);
-  }
-
-  /**
-   * showCough
-   *
-   * hides: nothing
-   * (previous and next sections are histograms
-   *  so we don't have to hide much here)
-   * shows: histogram
-   *
-   */
-  function showCough() {
-    // ensure the axis to histogram one
-    showAxis(xAxisHist);
-
-    g.selectAll('.hist')
-      .transition()
-      .duration(600)
-      .attr('y', function (d) { return yHistScale(d.length); })
-      .attr('height', function (d) { return height - yHistScale(d.length); })
-      .style('opacity', 1.0);
-  }
-
-  /**
-   * showAxis - helper function to
-   * display particular xAxis
-   *
-   * @param axis - the axis to show
-   *  (xAxisHist or xAxisBar)
-   */
-  function showAxis(axis) {
-    g.select('.x.axis')
-      .call(axis)
-      .transition().duration(500)
-      .style('opacity', 1);
-  }
-
-  /**
-   * hideAxis - helper function
-   * to hide the axis
-   *
-   */
-  function hideAxis() {
-    g.select('.x.axis')
-      .transition().duration(500)
-      .style('opacity', 0);
+  function xScaleH(d, p_tau_curr) {
+    return d.x_start*(1-p_tau_curr) + d.x_end*(p_tau_curr);
   }
 
   /**
@@ -617,26 +585,6 @@ var scrollVis = function () {
    *
    */
 
-  /**
-   * updateCough - increase/decrease
-   * cough text and color
-   *
-   * @param progress - 0.0 - 1.0 -
-   *  how far user has scrolled in section
-   */
-  function updateCough(progress) {
-    g.selectAll('.cough')
-      .transition()
-      .duration(0)
-      .attr('opacity', progress);
-
-    g.selectAll('.hist')
-      .transition('cough')
-      .duration(0)
-      .style('fill', function (d) {
-        return (d.x0 >= 14) ? coughColorScale(progress) : '#008080';
-      });
-  }
 
   /**
    * DATA FUNCTIONS
@@ -645,85 +593,6 @@ var scrollVis = function () {
    * formats we need to visualize
    *
    */
-
-  /**
-   * getWords - maps raw data to
-   * array of data objects. There is
-   * one data object for each word in the speach
-   * data.
-   *
-   * This function converts some attributes into
-   * numbers and adds attributes used in the visualization
-   *
-   * @param rawData - data read in from file
-   */
-  function getWords(rawData) {
-    return rawData.map(function (d, i) {
-      // is this word a filler word?
-      d.filler = (d.filler === '1') ? true : false;
-      // time in seconds word was spoken
-      d.time = +d.time;
-      // time in minutes word was spoken
-      d.min = Math.floor(d.time / 60);
-
-      // positioning for square visual
-      // stored here to make it easier
-      // to keep track of.
-      d.col = i % numPerRow;
-      d.x = d.col * (squareSize + squarePad);
-      d.row = Math.floor(i / numPerRow);
-      d.y = d.row * (squareSize + squarePad);
-      return d;
-    });
-  }
-
-  /**
-   * getFillerWords - returns array of
-   * only filler words
-   *
-   * @param data - word data from getWords
-   */
-  function getFillerWords(data) {
-    return data.filter(function (d) {return d.filler; });
-  }
-
-  /**
-   * getHistogram - use d3's histogram layout
-   * to generate histogram bins for our word data
-   *
-   * @param data - word data. we use filler words
-   *  from getFillerWords
-   */
-  function getHistogram(data) {
-    // only get words from the first 30 minutes
-    var thirtyMins = data.filter(function (d) { return d.min < 30; });
-    // bin data into 2 minutes chuncks
-    // from 0 - 31 minutes
-    // @v4 The d3.histogram() produces a significantly different
-    // data structure then the old d3.layout.histogram().
-    // Take a look at this block:
-    // https://bl.ocks.org/mbostock/3048450
-    // to inform how you use it. Its different!
-    return d3.histogram()
-      .thresholds(xHistScale.ticks(10))
-      .value(function (d) { return d.min; })(thirtyMins);
-  }
-
-  /**
-   * groupByWord - group words together
-   * using nest. Used to get counts for
-   * barcharts.
-   *
-   * @param words
-   */
-  function groupByWord(words) {
-    return d3.nest()
-      .key(function (d) { return d.word; })
-      .rollup(function (v) { return v.length; })
-      .entries(words)
-      .sort(function (a, b) {return b.value - a.value;});
-  }
-
   /**
    * activate -
    *
@@ -793,4 +662,5 @@ function display(data) {
 }
 
 // load data and display
-d3.tsv('data/words.tsv', display);
+// d3.tsv('data/words.tsv', display);
+d3.json('data/viz_data.json', display);

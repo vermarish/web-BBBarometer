@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<meta charset="UTF-8">
 <html>
 <head>
   <title>Scrolling Sections</title>
@@ -9,29 +10,37 @@
 <div class="container">
   <div id='graphic'>
     <div id='sections'>
-      <section class="step">
-        <div class="title">OpenVis Conf 2013</div>
-        I did what no presenter should ever do: I watched my own talk.<br/><br/>My first visit to OpenVis Conf in 2013.
+      <section class="step"> <!-- Abstract-->
+        <div class="title">Big Brother Barometer</div>
+        This one weird vulnerability uses machine learning to break into a locked smartphone using only the motion sensors.
+        <br/><br/>
+        Here's how it works.
+        <br/><br/>
+        &or; Scroll to continue. ⇊
       </section>
       <section class="step">
-        <div class="title">Filler Words</div>
-        As expected, I could only focus on the flaws: the rushed speech, the odd phrases, and, most especially, all the filler words. In fact, I found 180 filler words in my 30 minute talk.
+        <div class="title"></div>
+        The attack starts innocently, with a game of Whack-A-Mole. 
+        <br/>
+        The user taps on different parts of the screen, and the game records the occurrence of each tap.
       </section>
       <section class="step">
-        <div class="title">My Talk</div>
-        Here are all 5,040 words of my talk.
+        <div class="title"></div>
+        Unbeknownst to the user, the game also records the data from their phone's air pressure sensor,
       </section>
       <section class="step">
-        <div class="title">My Stumbles</div>
-        And here are all the fillers I used in those 30 minutes.
+        <div class="title"></div>
+        ...as well as the three rotational motion sensors.
       </section>
       <section class="step">
-        <div class="title">Um's, Ah's &amp; Uh's</div>
-        I almost exclusively used these three fillers. Um's and Ah's made up over 80%, with Uh's trailing behind.
+        <div class="title"></div>
+        Notice how every time the user taps, there's a spike in the pressure sensor?
       </section>
       <section class="step">
-        <div class="title">Fillers Over Time</div>
-        I hoped that all these blunders were toward the beginning of my talk. And the data suggests that fewer fillers are used as I get into it. Perhaps the talk started out rough and improved as I found my groove.
+        <div class="title">Plan Of Attack</div>
+        Identifying the occurrence
+        
+        This signal can be trained with a windowed regression model 
       </section>
       <section class="step">
         <div class="title">Ramping Back Up</div>
@@ -47,6 +56,12 @@
       </section>
     </div>
     <div id='vis'>
+      <video id="video" controls="" width="500px" height="281px" preload="none" poster="https://i.pinimg.com/originals/c7/50/7d/c7507dde953e51480336a94f65f28e1b.png" loop="">
+              <source id="mp4" src="./media/video_one.mp4" type="video/mp4">
+              <source id="webm" src="https://media.w3.org/2010/05/sintel/trailer.webm" type="video/webm">
+              <source id="ogv" src="https://media.w3.org/2010/05/sintel/trailer.ogv" type="video/ogg">
+              <p>Your user agent does not support the HTML5 Video element.</p>
+            </video>
     </div>
     <div id="extra-space">
     </div>

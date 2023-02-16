@@ -19,7 +19,7 @@
 
 .step {
   margin-bottom: 200px;
-  font-family: "TiemposTextWeb-Regular","Georgia";
+  font-family: "OpenSans", "Arial","TiemposTextWeb-Regular","Georgia";
   font-size: 16px;
   line-height: 23px;
   color: #767678;
@@ -77,4 +77,7 @@
 
 }
 
-
+@font-face {
+  font-family:"OpenSans";
+  src: url("./fonts/OpenSans-Regular.ttf");
+}
