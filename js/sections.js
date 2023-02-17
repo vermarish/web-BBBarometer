@@ -245,10 +245,12 @@
       .attr('opacity', 0);
 
     // SECTION 0: video
-    // setup the video listeners
     video.loop = false;
     video.volume = 0;
-
+    video.controls = false;
+    video.parentElement.append('rect')
+    
+    // setup the video listeners
     video.addEventListener('play', startAnimation);
     video.addEventListener('pause', function() {
       console.log("pausing?");
@@ -290,21 +292,26 @@
     .attr('y', height/4);
     var touchesContainer = g.select(".touchesContainer");
 
+    var axisContainer = touchesContainer.append("g")
+      .attr("class", "axisContainer");
+    
     // horizontal line
-    touchesContainer.append("line")
+    axisContainer.append("line")
       .attr("x1", 0)
       .attr("y1", 120) 
       .attr("x2", width)
       .attr("y2", 120)
-      .attr("style", "stroke:rgb(200,200,200);stroke-width:2");
+      .attr("style", "stroke:rgb(200,200,200);stroke-width:2")
+      .attr("opacity", 0);
 
     // vertical line
-    touchesContainer.append("line")
+    axisContainer.append("line")
       .attr("x1", width)
       .attr("y1", 60) 
       .attr("x2", width)
       .attr("y2", 180)
-      .attr("style", "stroke:rgb(20,20,20);stroke-width:2");
+      .attr("style", "stroke:rgb(20,20,20);stroke-width:2")
+      .attr("opacity", 0);
 
     
     // initialize the circles
@@ -340,9 +347,7 @@
 
     // activateFunctions are called each
     // time the active section changes
-    activateFunctions[0] = showTitle;
-    activateFunctions[1] = function() { video.play(); };
-    
+    activateFunctions[1] = showTouchAndVideo;
     
 
     // TODO more activateFunctions
@@ -371,82 +376,33 @@
    *
    */
 
+  
   /**
-   * showTitle - initial title
-   *
-   * hides: count title
-   * (no previous step to hide)
-   * shows: intro title
-   *
+   * hides: pressure graph TODO
+   * shows: touch and video
    */
-  function showTitle() {
-    g.selectAll('.count-title')
-      .transition()
-      .duration(0)
-      .attr('opacity', 0);
-
-    g.selectAll('.openvis-title')
-      .transition()
-      .duration(600)
-      .attr('opacity', 1.0);
-
-    g.selectAll('.x-axis, .y-axis, .singular-dot')
+  function showTouchAndVideo() {
+    video.play();
+    video.controls = "true";
+    g.select(".touchesContainer")
+    .select(".axisContainer")
+    .selectAll("line")
     .transition()
-    .duration(0)
-    .attr('opacity', 0);
+    .attr("opacity", 1)
+    .duration(500);
   }
 
   /**
-   * showFillerTitle - filler counts
-   *
-   * hides: intro title
-   * hides: square grid
-   * shows: filler count title
-   *
+   * Whatever time the video's at, set the whole canvas to that time.
+   * (NO ANIMATING DONE HERE)
    */
-  function showFillerTitle() {
-    g.selectAll('.openvis-title')
-      .transition()
-      .duration(0)
-      .attr('opacity', 0);
-
-    g.select('.x-axis')
-      .transition()
-      .duration(0)
-      .attr('opacity', 1.0);
-
-    g.select('.y-axis')
-      .transition()
-      .duration(0)
-      .attr('opacity', 1.0);
-
-    g.selectAll('.singular-dot')
-      .transition()
-      .duration(0)
-      .attr('opacity', 1.0);
-  }
-
-  function moveTapsTo(p) {
-    console.log("moveTapsTo()");
-    var touches = g.select(".touchesContainer").selectAll('.touch');
-    touches.transition()
-      .ease(d3.easeLinear)
-      .duration(1000)
-      .attr('cx', function(d) {return xScaleH(d, p)});
-  }
-
   function seekToState() {
     console.log("seekToState()")
     
     var tauCurr = video.currentTime;
-    
     var p_from = p_tau(tauCurr);
-
     var touches = g.select(".touchesContainer").selectAll('.touch');
     
-    // console.log(touches.data());
-    
-
     var touchesE = touches.data(d3.select("#vis").datum()["touch_times"])
       .enter()
       .append("circle")
@@ -457,21 +413,15 @@
       .attr('cy', 120)
       // if it's not their turn, they'll hang off-screen
       .attr('cx', 1000);
-
-    
     
     touches = touches.merge(touchesE);
     // touches = g.select(".touchesContainer").selectAll('.touch');  // only if the merge is flopping
     
-
-    
-
     touches
       .data(d3.select("#vis").datum()["touch_times"])
       .transition()
       .duration(150)
       .ease(d3.easeLinear)
-      // .attr('opacity', function(d) {return 0.2 + 0.6*(d.tau_reveal < tauCurr)})
       .attr('opacity', 0.8)
       // if it is their turn, put them where they belong
       .attr('cx', d => xScaleH(d, p_from));
