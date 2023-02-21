@@ -179,7 +179,7 @@
        * modify a time-series-array in-place, using 
        * @param {*} time_series 
        */
-      var precompute = function(time_series) {
+      let precompute = function(time_series) {
         let x_totalWidth = width*gui_stretch;
         for (i = 0; i < time_series.length; i++) {  
           d = time_series[i];
@@ -196,7 +196,7 @@
       precompute(touchData);
       precompute(pressureData);
 
-
+      console.log(pressureData);
 
       setupVis(touchData, pressureData);
 
@@ -330,11 +330,13 @@
         .attr("y1", 60) 
         .attr("x2", width)
         .attr("y2", 180)
-        .attr("style", "stroke:rgb(20,20,20);stroke-width:2")
+        .attr("style", "stroke:rgb(200,200,200);stroke-width:2")
         .attr("opacity", 0);
       
       // data init
-      container.selectAll('circle')
+      container.append('g')
+        .attr("class", "data")
+        .selectAll('circle')
         .data(time_series)
         .enter()
         .append('circle')
@@ -356,87 +358,15 @@
       "pressureContainer",
       "translate(0,240)"
       );
-    // cd .. confirm this shit works
-    
-    // SECTION 1: FIRST TOUCH GRAPH
-    var touchesContainer = g.append("g")
-    .attr("id", "touchesContainer")
-    .attr('x', width)
-    .attr('y', height/4);
 
-    var axisContainer = touchesContainer.append("g")
-      .attr("class", "axisContainer");
-    
-    // horizontal line
-    axisContainer.append("line")
-      .attr("x1", 0)
-      .attr("y1", 120) 
-      .attr("x2", width)
-      .attr("y2", 120)
-      .attr("style", "stroke:rgb(200,200,200);stroke-width:2")
-      .attr("opacity", 0);
-
-    // vertical line
-    axisContainer.append("line")
-      .attr("x1", width)
-      .attr("y1", 60) 
-      .attr("x2", width)
-      .attr("y2", 180)
-      .attr("style", "stroke:rgb(20,20,20);stroke-width:2")
-      .attr("opacity", 0);
-
-    
-    // initialize the circles
-    var touches = touchesContainer.selectAll('.touch')
-      .data(touchData, function (d) {return d.time;})
-      .enter()
-      .append('circle')
-      .attr('id', d => d.id)
-      .attr('class', 'touch')
-      .attr('cx', function(d){return timeScaleF(d.time);})
-      .attr('cy', 120)
-      .attr('r', 20)
-      .attr('fill', 'red')
-      .attr('opacity', 0.8);
-
-
-    // SECTION 2: PRESSURE GRAPH
-    /*
-    var pressureContainer = g.append("g")
-      .attr("id", "pressureContainer")
-      .attr('x', width)
-      .attr('y', height/4)
-      .attr('transform', 'translate(0,200)');
-    
-    axisContainer = pressureContainer.append("g")
-      .attr("class", "axisContainer");
-    // horizontal line (same as in touch container, TODO refactor)
-    axisContainer.append("line")
-      .attr("x1", 0)
-      .attr("y1", 120) 
-      .attr("x2", width)
-      .attr("y2", 120)
-      .attr("style", "stroke:rgb(200,200,200);stroke-width:2")
-      .attr("opacity", 0);
-    // vertical line
-    axisContainer.append("line")
-      .attr("x1", width)
-      .attr("y1", 60) 
-      .attr("x2", width)
-      .attr("y2", 180)
-      .attr("style", "stroke:rgb(20,20,20);stroke-width:2")
-      .attr("opacity", 0);
-    pressureContainer.selectAll(".pressure")
-      .data(pressureData)
-      .enter()
-      .append('circle')
-      .attr('id', d => d.id)
-      .attr('cx', function(d) {return timeScaleF(d.time);})
-      .attr('cy', function(d) {return pressure_to_y(d.one)})
-      .attr('r', 5)
-      .attr('fill', 'blue')
-      .attr('opacity', 0.5);
-    */
+    plot_time_series(touchData, 
+      function(d) {return timeScaleF(d.time)},
+      function(d) {return 120},
+      20,
+      'red',
+      "touchContainer",
+      "translate(0,60)"
+    );
   };
 
   /**
@@ -461,16 +391,15 @@
     activateFunctions[2] = showPressure;
     
 
-    // TODO more activateFunctions
-
     // updateFunctions are called while
     // in a particular section to update
     // the scroll progress in that section.
     // Most sections do not need to be updated
     // for all scrolling and so are set to
-    // no-op functions.
-    // TODO actual updateFunctions
-  };
+    // no-op functions
+    
+    // (update functions go here)
+};
 
   /**
    * ACTIVATE FUNCTIONS
@@ -493,14 +422,16 @@
    * shows: touch and video
    */
   function showTouchAndVideo() {
+    console.log("showing");
     video.play();
     video.controls = "true";
-    g.select("#touchesContainer")
-    .select(".axisContainer")
-    .selectAll("line")
-    .transition()
-    .attr("opacity", 1)
-    .duration(500);
+
+    g.select("#touchContainer")
+      .select(".axes")
+      .selectAll("line")
+      .transition()
+      .attr("opacity", 1)
+      .duration(500);
   }
 
   /**
@@ -525,12 +456,12 @@
     
     var tauCurr = video.currentTime;
     var p_from = p_tau(tauCurr);
-    var touches = g.select("#touchesContainer").selectAll('.touch');
+
+    var touches = g.select("#touchContainer").select(".data").selectAll("*");
     
     var touchesE = touches.data(d3.select("#vis").datum()["touch_times"])
       .enter()
       .append("circle")
-      .attr("class", "touch")
       .attr("id", d => d.i)
       .attr('r', 20)
       .attr('fill', 'red')
@@ -552,27 +483,20 @@
   }
   
   function startAnimation() {
-    /*
-    first transition with computed delay, zero duration, opacity 0->1, x anywhere -> width
-    then transition with same delay, duration = remaining animation, x -> end
-    */
+    // first bring the points to the x corresponding to tau_from
+    seekToState();
 
-    
-    
+    // then begin
+    console.log("startAnimation() ");
 
     var tau_from = video.currentTime;
     var tau_to = tau_close;
-
-    var p_from = p_tau(tau_from);
     var p_close = p_tau(tau_close);
 
     
-    // first bring the points to the x corresponding to tau_from
-    seekToState();
-    console.log("startAnimation() ");
     
-    var touches = g.select("#touchesContainer").selectAll('.touch');
-    
+    var touches = g.select("#touchContainer").select(".data").selectAll("*");
+        
     // then bring each to the x_width when it's their turn to be revealed
     touches
       .transition()
@@ -601,7 +525,7 @@
   }
 
   function stopAnimation() {
-    var touches = g.select("#touchesContainer").selectAll(".touch");
+    var touches = g.select("#touchContainer").select(".data").selectAll("*");
     touches.interrupt();
   }
 
