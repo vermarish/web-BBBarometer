@@ -64,22 +64,29 @@
   // for revealing time-series
   var transition_duration = 1000;  // unit ms
 
+  // for time-series plot height
+  var ts_group_height = 100;  // vertical axis length + margin
+  var ts_plot_proportion = 0.9;
+  var ts_plot_height = ts_plot_proportion*ts_group_height;   // vertical axis length
+  var percent_upper_bound = 100*(ts_group_height - ts_plot_height)/(2*ts_group_height);
+  var percent_lower_bound = 100*(ts_group_height + ts_plot_height)/(2*ts_group_height);
 
   // map of values to always be initialized for touchData.
   var touchSpec = {
     "id": d => d.i, // id is hardcoded instead of being indexed as
                     // `(d, i) => i` so that id is preserved between re-enters
     "cx": d => timeScaleF(d.time),
-    "cy": 120,
+    "cy": "50%",
     "r": 20,
     "fill": "red",
     "opacity": 0.7
   };
-
+  
   var pressureSpec = {
     "id": d => d.i,
     "cx": d => timeScaleF(d.time),
-    "cy": d => pressure_to_y(d.one),
+    // "cy": d => pressure_to_y(d.one),
+    "cy": d => pressure_to_y(d.one) + "%",
     "r": 2,
     "fill": "blue",
     "opacity": 0.8
@@ -160,7 +167,10 @@
       pressure_to_y = d3.scaleLinear()
         // extent of pressure data
         .domain(d3.extent(pressureData, d => d.one))
-        .range([180,60]);
+        .range([
+          100*(ts_group_height + ts_plot_height)/(2*ts_group_height),
+          100*(ts_group_height - ts_plot_height)/(2*ts_group_height)
+        ]);
 
 
       // pre-compute initial and ending x points using functions F and G
@@ -291,10 +301,11 @@
     let plot_time_series = function(time_series, spec, 
       containerName, transform) {
       // start with a container
-      let container = g.append("g")
+      let container = g.append("svg")
         .attr("id", containerName)
-        .attr('x', width)
-        .attr('y', height/4)
+        // .attr('x', width)
+        // .attr('y', height/4)
+        .attr("height", ts_group_height)
         .attr('transform', transform)
         .attr('opacity', 0);  // always init with opacity 0, reveal later.
 
@@ -303,16 +314,16 @@
         .attr("class", "axes");
       axes.append("line")  // horizontal
         .attr("x1", 0)
-        .attr("y1", 120)
+        .attr("y1", "50%")
         .attr("x2", width)
-        .attr("y2", 120)
+        .attr("y2", "50%")
         .attr("style", "stroke:rgb(220,220,220);stroke-width:2")
         .attr("opacity", 1);
       axes.append("line")  // vertical
         .attr("x1", width)
-        .attr("y1", 60) 
+        .attr("y1", percent_upper_bound + "%") 
         .attr("x2", width)
-        .attr("y2", 180)
+        .attr("y2", percent_lower_bound + "%")
         .attr("style", "stroke:rgb(220,220,220);stroke-width:2")
         .attr("opacity", 1);
       
@@ -333,7 +344,7 @@
 
     
     plot_time_series(touchData, touchSpec, "touchContainer", "translate(0,0)");
-    plot_time_series(pressureData, pressureSpec, "pressureContainer", "translate(0,180)");
+    plot_time_series(pressureData, pressureSpec, "pressureContainer", "translate(0,150)");
   };
 
   /**
