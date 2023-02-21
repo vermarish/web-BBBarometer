@@ -37,6 +37,7 @@
 
   // subContainers for quicker selections
   var touchesContainer = null;
+  var pressureContainer = null;
 
   // We will set the domain when the
   // data is processed.
@@ -76,10 +77,9 @@
 
   // given datum's t, compute the tau for when it should enter the viz
   var t_to_tau_cross = null;
-
   var tau_to_p = null;
-
   var t_to_p = null;
+  var pressure_to_y = null;
 
   var x_reveal = 600;
 
@@ -136,11 +136,16 @@
 
       // ALL DATA PRE-COMPUTATIONS FOLLOW HERE
       var touchData = rawData.touch_times;
+      var pressureData = rawData.pressure_data;
       t_open = rawData.t_open[0];
       t_close = rawData.t_close[0];
       tau_close = rawData.tau_close[0];
       delta_tau_s = tau_close - tau_open;
       delta_tau_ms = delta_tau_s*1000;
+
+
+      var pressure_range = d3.extent(pressureData, d => d.one);
+      
 
       // build all of our conversion functions using t_open, t_close
       timeScaleF = d3.scaleLinear()  // TODO refactor timeScaleF to xAtStart
@@ -163,38 +168,37 @@
       .domain([tau_open, tau_close])
       .range([0,1]);
       
+      pressure_to_y = d3.scaleLinear()
+        // extent of pressure data
+        .domain(d3.extent(pressureData, d => d.one))
+        .range([0,120]);
+
 
       // pre-compute initial and ending x points using functions F and G
-      var x_totalWidth = width*gui_stretch;
-      for (i = 0; i < touchData.length; i++) {
-        d = touchData[i];
-        var t = d.time;
-        d.x_start = t_to_p(t)*x_totalWidth + width;
-        d.x_end = d.x_start - x_totalWidth;
-        var p_reveal = (d.x_start - x_reveal)/(x_totalWidth);
-        d.tau_reveal = p_reveal*delta_tau_s;  // range [0,tau_close]
-        d.check = xScaleH(touchData[i], tau_to_p(d.tau_reveal));
-        d.id = i;
+      /**
+       * modify a time-series-array in-place, using 
+       * @param {*} time_series 
+       */
+      var precompute = function(time_series) {
+        let x_totalWidth = width*gui_stretch;
+        for (i = 0; i < time_series.length; i++) {  
+          d = time_series[i];
+          let t = d.time;  // TODO are looped re-allocations weird?
+          d.x_start = t_to_p(t)*x_totalWidth + width;
+          d.x_end = d.x_start - x_totalWidth;
+          let p_reveal = (d.x_start - x_reveal)/(x_totalWidth);
+          d.tau_reveal = p_reveal*delta_tau_s;  // range [0,tau_close]
+          d.check = xScaleH(time_series[i], tau_to_p(d.tau_reveal));
+          d.id = i;
+        }
       }
 
-
-      var i=0;
-      d = touchData[i];
-      var t = d.time;
-      d.x_start = t_to_p(t)*x_totalWidth + width;
-      d.x_end = d.x_start - x_totalWidth;
-      var p_reveal = (d.x_start - x_reveal)/(x_totalWidth);
-      console.log(delta_tau_s);
-      d.tau_reveal = p_reveal*delta_tau_s;  // range [0,tau_close]
-      d.check = xScaleH(touchData[i], tau_to_p(d.tau_reveal));
-      d.id = i;
-      console.log(d);
-
-      console.log(rawData);
-      console.log(touchData);
+      precompute(touchData);
+      precompute(pressureData);
 
 
-      setupVis(touchData);
+
+      setupVis(touchData, pressureData);
 
       setupSections();
     });
@@ -211,7 +215,7 @@
    * @param histData - binned histogram data
    */
   
-  var setupVis = function (touchData) {
+  var setupVis = function (touchData, pressureData) {
     // count openvis title
     g.append('text')
       .attr('class', 'title openvis-title')
@@ -285,12 +289,78 @@
       .attr('height', 700)
       .attr('fill', 'url(#Gradient0)');
 
-    // SECTION 1: FIRST TOUCH GRAPH    
-    g.append("g")
-    .attr("class", "touchesContainer")
+    // SECTION 1 - epsilon: INNER FUNCTION
+    
+    // TODO cd.. this inner function will
+    // create a whole time-series graph given
+    // data, cx, cy, r, translate, color, etc.
+    /**
+     * 
+     * @param {Array of tuples} time_series a dataset with at least the column of time
+     * @param {number | function} cx 
+     * @param {number | function} cy 
+     * @param {number | function} r 
+     * @param {string} fill HTML color (hex or named)
+     * @param {string} containerName HTML id with no hash, e.g. "touchContainer"
+     * @param {string} transform for the containing <g>, e.g. "translate(0,120)"
+     */
+    let plot_time_series = function(time_series, cx, cy, r, fill, 
+      containerName, transform) {
+      // start with a container
+      let container = g.append("g")
+        .attr("id", containerName)
+        .attr('x', width)
+        .attr('y', height/4)
+        .attr('transform', transform);
+
+      // subcontainer for horizontal and vertical axes
+      let axes = container.append("g")
+        .attr("class", "axes");
+      axes.append("line")  // horizontal
+        .attr("x1", 0)
+        .attr("y1", 120)
+        .attr("x2", width)
+        .attr("y2", 120)
+        .attr("style", "stroke:rgb(200,200,200);stroke-width:2")
+        .attr("opacity", 0);
+      axes.append("line")  // vertical
+        .attr("x1", width)
+        .attr("y1", 60) 
+        .attr("x2", width)
+        .attr("y2", 180)
+        .attr("style", "stroke:rgb(20,20,20);stroke-width:2")
+        .attr("opacity", 0);
+      
+      // data init
+      container.selectAll('circle')
+        .data(time_series)
+        .enter()
+        .append('circle')
+        .attr('id', d => d.id)  // id is hardcoded instead of being indexed as
+                                // `(d, i) => i` so that id is preserved between re-enters
+        .attr('cx', cx)
+        .attr('cy', cy)
+        .attr('r', r)
+        .attr('fill', fill);
+
+    }
+
+    
+    plot_time_series(pressureData, 
+      function(d) {return timeScaleF(d.time)},
+      function(d) {return pressure_to_y(d.one)},
+      5,
+      'blue',
+      "pressureContainer",
+      "translate(0,240)"
+      );
+    // cd .. confirm this shit works
+    
+    // SECTION 1: FIRST TOUCH GRAPH
+    var touchesContainer = g.append("g")
+    .attr("id", "touchesContainer")
     .attr('x', width)
     .attr('y', height/4);
-    var touchesContainer = g.select(".touchesContainer");
 
     var axisContainer = touchesContainer.append("g")
       .attr("class", "axisContainer");
@@ -327,6 +397,44 @@
       .attr('fill', 'red')
       .attr('opacity', 0.8);
 
+
+    // SECTION 2: PRESSURE GRAPH
+    /*
+    var pressureContainer = g.append("g")
+      .attr("id", "pressureContainer")
+      .attr('x', width)
+      .attr('y', height/4)
+      .attr('transform', 'translate(0,200)');
+    
+    axisContainer = pressureContainer.append("g")
+      .attr("class", "axisContainer");
+    // horizontal line (same as in touch container, TODO refactor)
+    axisContainer.append("line")
+      .attr("x1", 0)
+      .attr("y1", 120) 
+      .attr("x2", width)
+      .attr("y2", 120)
+      .attr("style", "stroke:rgb(200,200,200);stroke-width:2")
+      .attr("opacity", 0);
+    // vertical line
+    axisContainer.append("line")
+      .attr("x1", width)
+      .attr("y1", 60) 
+      .attr("x2", width)
+      .attr("y2", 180)
+      .attr("style", "stroke:rgb(20,20,20);stroke-width:2")
+      .attr("opacity", 0);
+    pressureContainer.selectAll(".pressure")
+      .data(pressureData)
+      .enter()
+      .append('circle')
+      .attr('id', d => d.id)
+      .attr('cx', function(d) {return timeScaleF(d.time);})
+      .attr('cy', function(d) {return pressure_to_y(d.one)})
+      .attr('r', 5)
+      .attr('fill', 'blue')
+      .attr('opacity', 0.5);
+    */
   };
 
   /**
@@ -339,7 +447,7 @@
   var setupSections = function () {
     // first, init empty functions
     for (var i = 0; i < 9; i++) {
-      activateFunctions[i] = function () {console.log(i)};
+      activateFunctions[i] = function () {};
     }
     for (var i = 0; i < 9; i++) {
       updateFunctions[i] = function () {};
@@ -348,6 +456,7 @@
     // activateFunctions are called each
     // time the active section changes
     activateFunctions[1] = showTouchAndVideo;
+    activateFunctions[2] = showPressure;
     
 
     // TODO more activateFunctions
@@ -384,12 +493,25 @@
   function showTouchAndVideo() {
     video.play();
     video.controls = "true";
-    g.select(".touchesContainer")
+    g.select("#touchesContainer")
     .select(".axisContainer")
     .selectAll("line")
     .transition()
     .attr("opacity", 1)
     .duration(500);
+  }
+
+  /**
+   * hides: gyroscope TODO
+   * shows: pressure
+   */
+  function showPressure() {
+    g.select("#pressureContainer")
+      .select(".axisContainer")
+      .selectAll("line")
+      .transition()
+      .attr("opacity", 1)
+      .duration(500);
   }
 
   /**
@@ -401,7 +523,7 @@
     
     var tauCurr = video.currentTime;
     var p_from = p_tau(tauCurr);
-    var touches = g.select(".touchesContainer").selectAll('.touch');
+    var touches = g.select("#touchesContainer").selectAll('.touch');
     
     var touchesE = touches.data(d3.select("#vis").datum()["touch_times"])
       .enter()
@@ -447,7 +569,7 @@
     seekToState();
     console.log("startAnimation() ");
     
-    var touches = g.select(".touchesContainer").selectAll('.touch');
+    var touches = g.select("#touchesContainer").selectAll('.touch');
     
     // then bring each to the x_width when it's their turn to be revealed
     touches
@@ -477,28 +599,10 @@
   }
 
   function stopAnimation() {
-    var touches = g.select(".touchesContainer").selectAll(".touch");
+    var touches = g.select("#touchesContainer").selectAll(".touch");
     touches.interrupt();
   }
 
-  function moveTapsFromNew(p) {
-    // TODO forget p, I should do everything in terms of tau.
-    console.log("start moveTapsFromNew(" + p + ")");
-    
-    var center = svg.attr("width");
-    
-    var touches = g.select(".touchesContainer")
-      .selectAll(".touch");
-
-    // from progress p, the TOTAL animation will last delta_tau_ms*(1-p) seconds
-    touches.interrupt()
-      .attr('cx', function(d) {return xScaleH(d, p)})
-      .transition()
-      .ease(d3.easeLinear)
-      .duration(function(d) {delta_tau_ms*(1-p)*p_t(d.time)})
-      .attr('opacity', 1)
-
-  }
 
   /**
    * Linear mapping from [tau_open, tau_close] -> [0, 1]
