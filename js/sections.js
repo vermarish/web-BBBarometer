@@ -144,7 +144,7 @@
       delta_tau_ms = delta_tau_s*1000;
 
 
-      var pressure_range = d3.extent(pressureData, d => d.one);
+      // var pressure_range = d3.extent(pressureData, d => d.one);
       
 
       // build all of our conversion functions using t_open, t_close
@@ -255,8 +255,10 @@
     video.parentElement.append('rect')
     
     // setup the video listeners
-    video.addEventListener('play', startAnimation);
+    
+    video.addEventListener('playing', startAnimation);
     video.addEventListener('pause', function() {
+      
       console.log("pausing?");
       if (video.currentTime == video.duration) {
         console.log("not pausing.");
