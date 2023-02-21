@@ -35,26 +35,6 @@
 
   var video = document.getElementById('video');
 
-  // subContainers for quicker selections
-  var touchesContainer = null;
-  var pressureContainer = null;
-
-  // We will set the domain when the
-  // data is processed.
-  var xBarScale = d3.scaleLinear()
-    .range([0, width]);
-
-
-  // The histogram display shows the
-  // first 30 minutes of data
-  // so the range goes from 0 to 30
-  var xHistScale = d3.scaleLinear()
-    .domain([0, 30])
-    .range([0, width - 20]);
-
-  var yHistScale = d3.scaleLinear()
-    .range([height, 0]);
-
   var t_open = null;
   var t_close = null;
 
@@ -63,9 +43,7 @@
   var delta_tau_s = null;
   var delta_tau_ms = null;
 
-  var timeAxisScale = d3.scaleLinear()
-    .domain([t_open,t_close])
-    .range([width, 0]);
+  // if it is their turn, put them where they belong
     
   // two timescales: F is for the start of the viz
   //                 G is for the end of the viz
@@ -83,20 +61,27 @@
 
   var x_reveal = 600;
 
-  // You could probably get fancy and
-  // use just one axis, modifying the
-  // scale, but I will use two separate
-  // ones to keep things easy.
-  var xAxisBar = d3.axisBottom()
-    .scale(xBarScale);
+  // map of values to always be initialized for touchData.
+  var touchSpec = {
+    "id": d => d.i, // id is hardcoded instead of being indexed as
+                    // `(d, i) => i` so that id is preserved between re-enters
+    "cx": d => timeScaleF(d.time),
+    "cy": 120,
+    "r": 20,
+    "fill": "red",
+    "opacity": 0.8
+  };
 
-  var xAxisHist = d3.axisBottom()
-    .scale(xHistScale)
-    .tickFormat(function (d) { return d + ' min'; });
+  var pressureSpec = {
+    "id": d => d.i,
+    "cx": d => timeScaleF(d.time),
+    "cy": d => pressure_to_y(d.one),
+    "r": 2,
+    "fill": "blue",
+    "opacity": 0.8
+  };
 
-  var timeAxisScroll = d3.axisBottom()
-    .scale(timeAxisScale);
-
+  
   // When scrolling to a new section, the activation function 
   // for that section is called.
   var activateFunctions = [];
@@ -171,7 +156,7 @@
       pressure_to_y = d3.scaleLinear()
         // extent of pressure data
         .domain(d3.extent(pressureData, d => d.one))
-        .range([0,120]);
+        .range([180,60]);
 
 
       // pre-compute initial and ending x points using functions F and G
@@ -261,14 +246,9 @@
       
       console.log("pausing?");
       if (video.currentTime == video.duration) {
-        console.log("not pausing.");
         video.currentTime = 0;
-
-        console.log("wait for it...");
         setTimeout(function() {video.play()}, 500);
-        console.log("playing!");
       } else {
-        console.log("pausing!");
         stopAnimation();
       }
     });
@@ -293,9 +273,7 @@
 
     // SECTION 1 - epsilon: INNER FUNCTION
     
-    // TODO cd.. this inner function will
-    // create a whole time-series graph given
-    // data, cx, cy, r, translate, color, etc.
+    
     /**
      * 
      * @param {Array of tuples} time_series a dataset with at least the column of time
@@ -306,7 +284,7 @@
      * @param {string} containerName HTML id with no hash, e.g. "touchContainer"
      * @param {string} transform for the containing <g>, e.g. "translate(0,120)"
      */
-    let plot_time_series = function(time_series, cx, cy, r, fill, 
+    let plot_time_series = function(time_series, spec, 
       containerName, transform) {
       // start with a container
       let container = g.append("g")
@@ -340,33 +318,17 @@
         .data(time_series)
         .enter()
         .append('circle')
-        .attr('id', d => d.id)  // id is hardcoded instead of being indexed as
-                                // `(d, i) => i` so that id is preserved between re-enters
-        .attr('cx', cx)
-        .attr('cy', cy)
-        .attr('r', r)
-        .attr('fill', fill);
-
+        .attr("id", spec["id"])
+        .attr("cx", spec["cx"])
+        .attr("cy", spec["cy"])
+        .attr("r", spec["r"])
+        .attr("fill", spec["fill"])
+        .attr("opacity", spec["opacity"]);
     }
 
     
-    plot_time_series(pressureData, 
-      function(d) {return timeScaleF(d.time)},
-      function(d) {return pressure_to_y(d.one)},
-      5,
-      'blue',
-      "pressureContainer",
-      "translate(0,240)"
-      );
-
-    plot_time_series(touchData, 
-      function(d) {return timeScaleF(d.time)},
-      function(d) {return 120},
-      20,
-      'red',
-      "touchContainer",
-      "translate(0,60)"
-    );
+    plot_time_series(touchData, touchSpec, "touchContainer", "translate(0,0)");
+    plot_time_series(pressureData, pressureSpec, "pressureContainer", "translate(0,180)");
   };
 
   /**
@@ -440,7 +402,7 @@
    */
   function showPressure() {
     g.select("#pressureContainer")
-      .select(".axisContainer")
+      .select(".axes")
       .selectAll("line")
       .transition()
       .attr("opacity", 1)
@@ -458,75 +420,141 @@
     var p_from = p_tau(tauCurr);
 
     var touches = g.select("#touchContainer").select(".data").selectAll("*");
+    var pressure = g.select("#pressureContainer").select(".data").selectAll("*");
     
+    // some touches may be removed from DOM, and have to be re-added.
+    // TODO ...makes you wonder if removing from the DOM is ever a good idea.
     var touchesE = touches.data(d3.select("#vis").datum()["touch_times"])
       .enter()
       .append("circle")
-      .attr("id", d => d.i)
-      .attr('r', 20)
-      .attr('fill', 'red')
-      .attr('cy', 120)
-      // if it's not their turn, they'll hang off-screen
-      .attr('cx', 1000);
+      .attr("id", touchSpec["id"])
+      .attr('cx', 1000)  // if it's not their turn, they'll hang off-screen
+      .attr('cy', touchSpec["cy"])
+      .attr('r', touchSpec["r"])
+      .attr('fill', touchSpec["fill"])
+      .attr('opacity', touchSpec["opacity"]);
+
+    var pressureE = pressure.data(d3.select("#vis").datum()["pressure_data"])
+      .enter()
+      .append("circle")
+      .attr("id", pressureSpec["id"])
+      .attr("cx", 1000)
+      .attr("cy", pressureSpec["cy"])
+      .attr("r", pressureSpec["r"])
+      .attr("fill", pressureSpec["fill"])
+      .attr("opacity", pressureSpec["opacity"]);
     
     touches = touches.merge(touchesE);
+    pressure = pressure.merge(pressureE);
     // touches = g.select(".touchesContainer").selectAll('.touch');  // only if the merge is flopping
     
+    /*
     touches
-      .data(d3.select("#vis").datum()["touch_times"])
+      .merge(pressure)
+      
       .transition()
       .duration(150)
-      .ease(d3.easeLinear)
+      // .ease(d3.easeLinear)
       .attr('opacity', 0.8)
-      // if it is their turn, put them where they belong
+      
       .attr('cx', d => xScaleH(d, p_from));
+    */
+
+    for (const series of [touches, pressure]) {
+      series
+        // TODO do I really need a `selection.data(d3.select("#vis").datum()["touch_times"])` ?
+        .transition()
+        .duration(200)
+        // if it is their turn, put them where they belong
+        .attr('cx', d => xScaleH(d, p_from));
+        // TODO we don't want data to enter the canvas early. 
+        //      it would interfere with the axis labels.
+        //      we ought to set opacity to zero
+        //      i.e.   .attr("opacity", d => (d.tau_reveal > tauCurr) ? 0 : 0.8)
+        //      but how do we set the opacity back to 0.8 without breaking the transition animation pt 2?
+        //      let's try transition.merge later.
+        // cd .. for good measure hahaha
+    }
   }
   
   function startAnimation() {
     // first bring the points to the x corresponding to tau_from
     seekToState();
 
-    // then begin
     console.log("startAnimation() ");
-
     var tau_from = video.currentTime;
     var tau_to = tau_close;
     var p_close = p_tau(tau_close);
-
-    
-    
     var touches = g.select("#touchContainer").select(".data").selectAll("*");
+    var pressure = g.select("#pressureContainer").select(".data").selectAll("*");
         
+
+    console.log(touches.size());
+    console.log(pressure.size());
+
     // then bring each to the x_width when it's their turn to be revealed
-    touches
-      .transition()
-      .attr('cx', width)
-      .attr('fill', 'red')
-      .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })  // each datum is revealed at time tau_reveal
-      .duration(0);
     
+    // then continue the rest of the transition
+    
+    for (const series of [touches, pressure]) {
+      console.log('uh');
+      series
+        .transition()
+        .attr('cx', width)
+        .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })  // each datum is revealed at time tau_reveal
+        .duration(0);
+    
+      series.transition()
+        .attr('cx', function(d) {return xScaleH(d, p_close)})
+        .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })
+        .ease(d3.easeLinear)
+        .duration(function(d) { return 1000*(tau_to - d.tau_reveal) });
     
 
-    // then continue the rest of the transition
-    touches.transition()
-      .attr('cx', function(d) {return xScaleH(d, p_close)})
-      .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })
-      .ease(d3.easeLinear)
-      .duration(function(d) { return 1000*(tau_to - d.tau_reveal) });
-    
+
+      var elementRemoveDelay_s = 3;  // TODO
+      series.transition()
+        .delay(function(d) { return 1000*(d.tau_reveal - tau_from + elementRemoveDelay_s) })
+        .duration(0)
+        .remove();   
+    }
 
     // elements disappear after 10 seconds
-    var elementRemoveDelay_s = 10;  // TODO
-    touches.transition()
-      .delay(function(d) { return 1000*(d.tau_reveal - tau_from + elementRemoveDelay_s) })
-      .duration(0)
-      .remove();   
-      
+    
+
+    /*
+    for (const series of [touches]) {
+      // then only place each point at x_width once the video reaches d.tau_reveal
+      series
+        .transition()
+        .attr('cx', width)
+        .delay(function(d) { return 1000*(d.tau_reveal - tau_from) });
+        
+      // then continue the rest of the transition.
+      series.transition()
+        .attr('cx', function(d) {return xScaleH(d, p_close)})
+        .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })
+        .ease(d3.easeLinear)
+        .duration(function(d) { return 1000*(tau_to - d.tau_reveal) });
+        
+      // additionally, to lighten the DOM, elements disappear after 10 seconds. 
+      var elementRemoveDelay_s = 10; 
+      series.transition()
+        .delay(function(d) { return 1000*(d.tau_reveal - tau_from + elementRemoveDelay_s) })
+        .duration(0)
+        .remove();         
+    }
+    */
   }
 
   function stopAnimation() {
+    // TODO can I just use a global reference to these variables?
+    // after all, i assume d3 selections are simply pointers, 
+    // and so a single *static* selection statement has *dynamic* value through the program runtime.
     var touches = g.select("#touchContainer").select(".data").selectAll("*");
+    var pressure = g.select("#pressureContainer").select(".data").selectAll("*"); 
     touches.interrupt();
+    pressure.interrupt();
   }
 
 
