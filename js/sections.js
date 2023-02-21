@@ -61,6 +61,10 @@
 
   var x_reveal = 600;
 
+  // for revealing time-series
+  var transition_duration = 1000;  // unit ms
+
+
   // map of values to always be initialized for touchData.
   var touchSpec = {
     "id": d => d.i, // id is hardcoded instead of being indexed as
@@ -69,7 +73,7 @@
     "cy": 120,
     "r": 20,
     "fill": "red",
-    "opacity": 0.8
+    "opacity": 0.7
   };
 
   var pressureSpec = {
@@ -291,7 +295,8 @@
         .attr("id", containerName)
         .attr('x', width)
         .attr('y', height/4)
-        .attr('transform', transform);
+        .attr('transform', transform)
+        .attr('opacity', 0);  // always init with opacity 0, reveal later.
 
       // subcontainer for horizontal and vertical axes
       let axes = container.append("g")
@@ -301,15 +306,15 @@
         .attr("y1", 120)
         .attr("x2", width)
         .attr("y2", 120)
-        .attr("style", "stroke:rgb(200,200,200);stroke-width:2")
-        .attr("opacity", 0);
+        .attr("style", "stroke:rgb(220,220,220);stroke-width:2")
+        .attr("opacity", 1);
       axes.append("line")  // vertical
         .attr("x1", width)
         .attr("y1", 60) 
         .attr("x2", width)
         .attr("y2", 180)
-        .attr("style", "stroke:rgb(200,200,200);stroke-width:2")
-        .attr("opacity", 0);
+        .attr("style", "stroke:rgb(220,220,220);stroke-width:2")
+        .attr("opacity", 1);
       
       // data init
       container.append('g')
@@ -349,6 +354,7 @@
 
     // activateFunctions are called each
     // time the active section changes
+    activateFunctions[0] = showTitle;
     activateFunctions[1] = showTouchAndVideo;
     activateFunctions[2] = showPressure;
     
@@ -379,21 +385,31 @@
    */
 
   
+  function showTitle() {
+    g.select("#touchContainer")
+      .transition()
+      .attr("opacity", 0)
+      .duration(transition_duration);
+  }
+
   /**
-   * hides: pressure graph TODO
+   * hides: pressure graph
    * shows: touch and video
    */
   function showTouchAndVideo() {
-    console.log("showing");
     video.play();
     video.controls = "true";
 
     g.select("#touchContainer")
-      .select(".axes")
-      .selectAll("line")
       .transition()
       .attr("opacity", 1)
-      .duration(500);
+      .duration(transition_duration);
+
+    g.select("#pressureContainer")
+       // only need to change the opacity of the container itself
+      .transition()
+      .attr("opacity", 0)
+      .duration(transition_duration);
   }
 
   /**
@@ -402,11 +418,9 @@
    */
   function showPressure() {
     g.select("#pressureContainer")
-      .select(".axes")
-      .selectAll("line")
       .transition()
       .attr("opacity", 1)
-      .duration(500);
+      .duration(transition_duration);
   }
 
   /**
