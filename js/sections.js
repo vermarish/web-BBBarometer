@@ -58,8 +58,12 @@
   var tau_to_p = null;
   var t_to_p = null;
   var pressure_to_y = null;
+  var gyroscope_to_y = null;
 
   var x_reveal = 600;
+
+  var globalPressure = null;
+
 
   // for revealing time-series
   var transition_duration = 1000;  // unit ms
@@ -85,12 +89,38 @@
   var pressureSpec = {
     "id": d => d.i,
     "cx": d => timeScaleF(d.time),
-    // "cy": d => pressure_to_y(d.one),
     "cy": d => pressure_to_y(d.one) + "%",
     "r": 2,
     "fill": "blue",
     "opacity": 0.8
   };
+
+  var gyroscopeOneSpec = {
+    "id": d => d.i,
+    "cx": d => timeScaleF(d.time),
+    "cy": d => gyroscope_to_y(d.one) + "%",
+    "r": 2,
+    "fill": "green",
+    "opacity": 0.8
+  }
+
+  var gyroscopeTwoSpec = {
+    "id": d => d.i,
+    "cx": d => timeScaleF(d.time),
+    "cy": d => gyroscope_to_y(d.two) + "%",
+    "r": 2,
+    "fill": "green",
+    "opacity": 0.8
+  }
+
+  var gyroscopeThreeSpec = {
+    "id": d => d.i,
+    "cx": d => timeScaleF(d.time),
+    "cy": d => gyroscope_to_y(d.three) + "%",
+    "r": 2,
+    "fill": "green",
+    "opacity": 0.8
+  }
 
   
   // When scrolling to a new section, the activation function 
@@ -131,8 +161,10 @@
         .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
 
       // ALL DATA PRE-COMPUTATIONS FOLLOW HERE
-      var touchData = rawData.touch_times;
+      var touchData = rawData.touch_actual;
       var pressureData = rawData.pressure_data;
+      var gyroscopeData = rawData.gyroscope_data;
+
       t_open = rawData.t_open[0];
       t_close = rawData.t_close[0];
       tau_close = rawData.tau_close[0];
@@ -167,11 +199,11 @@
       pressure_to_y = d3.scaleLinear()
         // extent of pressure data
         .domain(d3.extent(pressureData, d => d.one))
-        .range([
-          100*(ts_group_height + ts_plot_height)/(2*ts_group_height),
-          100*(ts_group_height - ts_plot_height)/(2*ts_group_height)
-        ]);
+        .range([percent_lower_bound, percent_upper_bound]);
 
+      gyroscope_to_y = d3.scaleLinear()
+        .domain([-1, 1])
+        .range([percent_lower_bound, percent_upper_bound]);
 
       // pre-compute initial and ending x points using functions F and G
       /**
@@ -194,10 +226,9 @@
 
       precompute(touchData);
       precompute(pressureData);
+      precompute(gyroscopeData);
 
-      console.log(pressureData);
-
-      setupVis(touchData, pressureData);
+      setupVis(touchData, pressureData, gyroscopeData);
 
       setupSections();
     });
@@ -214,7 +245,7 @@
    * @param histData - binned histogram data
    */
   
-  var setupVis = function (touchData, pressureData) {
+  var setupVis = function (touchData, pressureData, gyroscopeData) {
     // count openvis title
     g.append('text')
       .attr('class', 'title openvis-title')
@@ -344,7 +375,12 @@
 
     
     plot_time_series(touchData, touchSpec, "touchContainer", "translate(0,0)");
-    plot_time_series(pressureData, pressureSpec, "pressureContainer", "translate(0,150)");
+    plot_time_series(pressureData, pressureSpec, "pressureContainer", "translate(0,120)");
+    plot_time_series(gyroscopeData, gyroscopeOneSpec, "gyroscopeOneContainer", "translate(0,240)");
+    plot_time_series(gyroscopeData, gyroscopeTwoSpec, "gyroscopeTwoContainer", "translate(0,340)");
+    plot_time_series(gyroscopeData, gyroscopeThreeSpec, "gyroscopeThreeContainer", "translate(0,440)");
+
+    globalPressure = g.select("#pressureContainer").select(".data").selectAll("*");
   };
 
   /**
@@ -368,6 +404,7 @@
     activateFunctions[0] = showTitle;
     activateFunctions[1] = showTouchAndVideo;
     activateFunctions[2] = showPressure;
+    activateFunctions[3] = showGyroscope;
     
 
     // updateFunctions are called while
@@ -424,11 +461,27 @@
   }
 
   /**
-   * hides: gyroscope TODO
+   * hides: gyroscope
    * shows: pressure
    */
   function showPressure() {
     g.select("#pressureContainer")
+      .transition()
+      .attr("opacity", 1)
+      .duration(transition_duration);
+
+    g.selectAll("#gyroscopeOneContainer, #gyroscopeTwoContainer, #gyroscopeThreeContainer")
+      .transition()
+      .attr("opacity", 0)
+      .duration(transition_duration);
+  }
+
+  /**
+   * hides: TODO
+   * shows: gyroscope
+   */
+  function showGyroscope() {
+    g.selectAll("#gyroscopeOneContainer, #gyroscopeTwoContainer, #gyroscopeThreeContainer")
       .transition()
       .attr("opacity", 1)
       .duration(transition_duration);
@@ -446,10 +499,13 @@
 
     var touches = g.select("#touchContainer").select(".data").selectAll("*");
     var pressure = g.select("#pressureContainer").select(".data").selectAll("*");
+    var gyroscopeOne = g.select("#gyroscopeOneContainer").select(".data").selectAll("*");
+    var gyroscopeTwo = g.select("#gyroscopeTwoContainer").select(".data").selectAll("*");
+    var gyroscopeThree = g.select("#gyroscopeThreeContainer").select(".data").selectAll("*");
     
     // some touches may be removed from DOM, and have to be re-added.
     // TODO ...makes you wonder if removing from the DOM is ever a good idea.
-    var touchesE = touches.data(d3.select("#vis").datum()["touch_times"])
+    var touchesE = touches.data(d3.select("#vis").datum()["touch_actual"])
       .enter()
       .append("circle")
       .attr("id", touchSpec["id"])
@@ -469,25 +525,45 @@
       .attr("fill", pressureSpec["fill"])
       .attr("opacity", pressureSpec["opacity"]);
     
+    var gyroscopeOneE = gyroscopeOne.data(d3.select("#vis").datum()["gyroscope_data"])
+      .enter()
+      .append("circle")
+      .attr("id", gyroscopeOneSpec["id"])
+      .attr("cx", 1000)
+      .attr("cy", gyroscopeOneSpec["cy"])
+      .attr("r", gyroscopeOneSpec["r"])
+      .attr("fill", gyroscopeOneSpec["fill"])
+      .attr("opacity", gyroscopeOneSpec["opacity"]);
+    var gyroscopeTwoE = gyroscopeTwo.data(d3.select("#vis").datum()["gyroscope_data"])
+      .enter()
+      .append("circle")
+      .attr("id", gyroscopeTwoSpec["id"])
+      .attr("cx", 1000)
+      .attr("cy", gyroscopeTwoSpec["cy"])
+      .attr("r", gyroscopeTwoSpec["r"])
+      .attr("fill", gyroscopeTwoSpec["fill"])
+      .attr("opacity", gyroscopeTwoSpec["opacity"]);
+    var gyroscopeThreeE = gyroscopeThree.data(d3.select("#vis").datum()["gyroscope_data"])
+      .enter()
+      .append("circle")
+      .attr("id", gyroscopeThreeSpec["id"])
+      .attr("cx", 1000)
+      .attr("cy", gyroscopeThreeSpec["cy"])
+      .attr("r", gyroscopeThreeSpec["r"])
+      .attr("fill", gyroscopeThreeSpec["fill"])
+      .attr("opacity", gyroscopeThreeSpec["opacity"]);
+
     touches = touches.merge(touchesE);
     pressure = pressure.merge(pressureE);
+    gyroscopeOne = gyroscopeOne.merge(gyroscopeOneE);
+    gyroscopeTwo = gyroscopeTwo.merge(gyroscopeTwoE);
+    gyroscopeThree = gyroscopeThree.merge(gyroscopeThreeE);
     // touches = g.select(".touchesContainer").selectAll('.touch');  // only if the merge is flopping
     
-    /*
-    touches
-      .merge(pressure)
-      
-      .transition()
-      .duration(150)
-      // .ease(d3.easeLinear)
-      .attr('opacity', 0.8)
-      
-      .attr('cx', d => xScaleH(d, p_from));
-    */
 
-    for (const series of [touches, pressure]) {
+    for (const series of [touches, pressure, gyroscopeOne, gyroscopeTwo, gyroscopeThree]) {
       series
-        // TODO do I really need a `selection.data(d3.select("#vis").datum()["touch_times"])` ?
+        // TODO do I really need a `selection.data(d3.select("#vis").datum()["touch_actual"])` ?
         .transition()
         .duration(200)
         // if it is their turn, put them where they belong
@@ -504,47 +580,44 @@
   
   function startAnimation() {
     // first bring the points to the x corresponding to tau_from
-    seekToState();
+    // seekToState();
 
     console.log("startAnimation() ");
     var tau_from = video.currentTime;
     var tau_to = tau_close;
     var p_close = p_tau(tau_close);
+
+    // TODO encapsulate all this in a function that returns an array of these selections
     var touches = g.select("#touchContainer").select(".data").selectAll("*");
     var pressure = g.select("#pressureContainer").select(".data").selectAll("*");
-        
+    var gyroscopeOne = g.select("#gyroscopeOneContainer").select(".data").selectAll("*");
+    var gyroscopeTwo = g.select("#gyroscopeTwoContainer").select(".data").selectAll("*");
+    var gyroscopeThree = g.select("#gyroscopeThreeContainer").select(".data").selectAll("*");
 
-    console.log(touches.size());
-    console.log(pressure.size());
-
-    // then bring each to the x_width when it's their turn to be revealed
     
-    // then continue the rest of the transition
-    
-    for (const series of [touches, pressure]) {
-      console.log('uh');
+    for (const series of [touches, pressure, gyroscopeOne, gyroscopeTwo, gyroscopeThree]) {
+      // then bring each to the x_width when it's their turn to be revealed
       series
-        .transition()
-        .attr('cx', width)
-        .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })  // each datum is revealed at time tau_reveal
-        .duration(0);
-    
+      .transition()
+      .attr('cx', width)
+      .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })  // each datum is revealed at time tau_reveal
+      .duration(0);
+      
+      // then continue the rest of the transition
       series.transition()
-        .attr('cx', function(d) {return xScaleH(d, p_close)})
-        .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })
-        .ease(d3.easeLinear)
-        .duration(function(d) { return 1000*(tau_to - d.tau_reveal) });
-    
-
-
-      var elementRemoveDelay_s = 3;  // TODO
+      .attr('cx', function(d) {return xScaleH(d, p_close)})
+      .delay(function(d) { return 1000*(d.tau_reveal - tau_from) })
+      .ease(d3.easeLinear)
+      .duration(function(d) { return 1000*(tau_to - d.tau_reveal) });
+      
+      var elementRemoveDelay_s = 2;  
+      // elements disappear after 2 seconds
       series.transition()
         .delay(function(d) { return 1000*(d.tau_reveal - tau_from + elementRemoveDelay_s) })
         .duration(0)
-        .remove();   
+        .remove();
     }
 
-    // elements disappear after 10 seconds
     
 
     /*
@@ -576,10 +649,11 @@
     // TODO can I just use a global reference to these variables?
     // after all, i assume d3 selections are simply pointers, 
     // and so a single *static* selection statement has *dynamic* value through the program runtime.
-    var touches = g.select("#touchContainer").select(".data").selectAll("*");
-    var pressure = g.select("#pressureContainer").select(".data").selectAll("*"); 
-    touches.interrupt();
-    pressure.interrupt();
+    let subcontainers = ["#touchContainer", "#pressureContainer",
+    "#gyroscopeOneContainer", "#gyroscopeTwoContainer", "#gyroscopeThreeContainer"];
+    for (const subcontainer of subcontainers) {
+      g.select(subcontainer).select(".data").selectAll("*").interrupt();
+    }
   }
 
 
